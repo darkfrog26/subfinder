@@ -11,13 +11,12 @@ use serde_json::json;
 
 const HASH_BLK_SIZE: u64 = 65536;
 
-const API_KEY: &'static str = env!("OPEN_SUBTITLES_API_KEY");
-
 fn main() {
-    process_directory(PathBuf::from("."));
+    let api_key = std::env::var("OPEN_SUBTITLES_API_KEY").unwrap();
+    process_directory(PathBuf::from("."), &api_key);
 }
 
-fn process_directory(path: PathBuf) {
+fn process_directory(path: PathBuf, api_key: &String) {
     let paths = fs::read_dir(path)
         .unwrap()
         .flatten()
@@ -29,7 +28,7 @@ fn process_directory(path: PathBuf) {
         srt_file.set_extension("srt");
 
         if path.is_dir() {
-            process_directory(path);
+            process_directory(path, api_key);
         } else if srt_file.exists() {
             println!("{} already exists, skipping!", srt_file.file_name().unwrap().to_str().unwrap());
         } else {
@@ -39,11 +38,11 @@ fn process_directory(path: PathBuf) {
             let hash = create_hash(file, file_size).unwrap();
             println!("Hash for {} is {}", path.to_str().unwrap(), hash);
 
-            let ids = file_ids(&hash);
+            let ids = file_ids(&hash, api_key);
 
             match ids.first() {
                 Some(id) => {
-                    download(id, srt_file);
+                    download(*id, srt_file, api_key);
                 }
                 None => println!("No ids found for {}", &hash)
             }
@@ -80,13 +79,13 @@ fn create_hash(file: File, fsize: u64) -> Result<String, std::io::Error> {
     Ok(hash_string)
 }
 
-fn file_ids(hash: &String) -> Vec<u64> {
+fn file_ids(hash: &String, api_key: &String) -> Vec<u64> {
     let url = Url::parse_with_params("https://api.opensubtitles.com/api/v1/subtitles",
                                      &[("moviehash", hash.as_str()), ("languages", "en"), ("ai_translated", "include"), ("machine_translated", "include")]).unwrap();
     let client = reqwest::blocking::Client::new();
     let response = client
         .get(url)
-        .header("Api-Key", API_KEY)
+        .header("Api-Key", api_key)
         .header("Content-Type", "application/json")
         .send()
         .unwrap()
@@ -100,7 +99,7 @@ fn file_ids(hash: &String) -> Vec<u64> {
     ids
 }
 
-fn download(file_id: &u64, file_name: PathBuf) {
+fn download(file_id: u64, file_name: PathBuf, api_key: &String) {
     let url = Url::parse("https://api.opensubtitles.com/api/v1/download").unwrap();
     let client = reqwest::blocking::Client::new();
     let request: Value = json!({
@@ -108,7 +107,7 @@ fn download(file_id: &u64, file_name: PathBuf) {
     });
     let response = client
         .post(url)
-        .header("Api-Key", API_KEY)
+        .header("Api-Key", api_key)
         .header("Content-Type", "application/json")
         .json(&request)
         .send()
